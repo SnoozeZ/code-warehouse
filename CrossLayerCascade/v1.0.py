@@ -5,14 +5,17 @@ import random
 import matplotlib.pyplot as plot
 from networkx.algorithms import *
 
-nodeNumber = 1000 		#节点个数
-averageDegree = 100 	#平均度数
-probDegree = 0.01 		#E-R模型中边有效的概率
-activeNumG1 = 50 		#现实网络中的初始激活数量
+nodeNumber = 10000 		#节点个数
+averageDegree = 10 		#平均度数
+#probDegree = 0.01 			#E-R模型中边有效的概率
+probDegree = averageDegree*nodeNumber/(nodeNumber*(nodeNumber-1.0)) #E-R模型中边有效的概率
+activeNumG1 = 10 		#现实网络中的初始激活数量
 activeNumG2 = 10 		#在线网络中的初始激活数量 
 disFig = False 			#是否显示图片
 crossAlpha = 0.01		#Self reinforcement 因子
 crossBeta = 0.01		#Neighborhood reinforcement 因子
+
+#现实网络
 
 def displayFigure(Y,title):
 	if disFig:
@@ -37,7 +40,7 @@ def construct(G1,G2): #返回一个随机ER网络,G1为现实网络，G2为在�
 	for edge in G1.edges():	#边赋予权值
 		id1 = edge[0]
 		id2 = edge[1]
-		weight = r.gauss(0.3,0.1)
+		weight = r.gauss(0.15,0.05)
 		G1.edge[id1][id2]['weight'] = weight
 		weight = 1 if weight>1 else weight #边界检查
 		weight = 0 if weight<0 else weight
@@ -46,7 +49,7 @@ def construct(G1,G2): #返回一个随机ER网络,G1为现实网络，G2为在�
 
 	Y = []
 	for node in G1.nodes(): #点赋予阈值
-		threshold = r.gauss(0.3,0.1)
+		threshold = r.gauss(0.31,0.1)
 		threshold = 1 if threshold>1 else threshold #边界检查
 		threshold = 0 if threshold<0 else threshold
 		G1.node[node]['threshold'] = threshold
@@ -59,7 +62,7 @@ def construct(G1,G2): #返回一个随机ER网络,G1为现实网络，G2为在�
 	for edge in G2.edges():#每条边赋予激活概率
 		id1 = edge[0]
 		id2 = edge[1]
-		prob = r.gauss(0.5,0.1)
+		prob = r.gauss(0.15,0.05)
 		prob = 1 if prob>1 else prob #边界检查
 		prob = 0 if prob<0 else prob
 		G2.edge[id1][id2]['actProb'] = prob	#边的激活高斯分布
@@ -98,14 +101,14 @@ def performCascade(G1,G2):
 		if not G1.node[node]['active']:	#当前点未被激活
 			totalWeight = 0
 			for edge in nx.edges(G1,node):
-				print edge
 				id1 = edge[0]
 				id2 = edge[1]
 				if G1.node[id2]['active']:
 					totalWeight += G1.edge[id1][id2]['weight']
 			if totalWeight >= G1.node[node]['threshold']:	#如果影响力大于阈值
-				G1.node[node]['active'] = True
 				actList.append(node)
+	for node in actList:
+		G1.node[node]['active'] = True
 	#现实网络向在线网络扩散
 	for node in actList:
 		if not G2.node[node]['active']:	#Self reinforcement
@@ -128,12 +131,16 @@ def performCascade(G1,G2):
 			for edge in nx.edges(G2,node):
 				id1 = edge[0]
 				id2 = edge[1]
-				if G2.node[id2]['active'] and G2.node[id2]['unuse']:
-					totalProb *= 1 - G2.edge[id1][id2]
+				if G2.node[id2]['active'] and G2[id1][id2]['unuse']:
+					totalProb *= 1 - G2.edge[id1][id2]['actProb']
+					G2[id1][id2]['unuse'] = False #边被用过了
 			totalProb = (1 - totalProb)*G2.node[node]['selfProb']
+			totalProb = 0 if totalProb<0 else totalProb
+			totalProb = 1 if totalProb>1 else totalProb
 			if probTrue(totalProb):
-				G2.node[node]['active'] = True
 				actList.append(node)
+	for node in actList:
+		G2.node[node]['active'] = True
 
 	#IC网络向LT网络的扩散
 	for node in actList:
@@ -144,30 +151,51 @@ def performCascade(G1,G2):
 			temp = 1 if temp>1 else temp
 			G1.node[node]['threshold'] = temp
 		else:	#Neighborhood reinforcement
-
-
-
-		
-
-
-
-
-
-
-	print len(G1.edges())
+			for edge in nx.edges(G1,node):
+				id1 = edge[0]
+				id2 = edge[1]
+				temp = G1.edge[id1][id2]['weight']
+				temp *= 1+crossBeta
+				temp = 0 if temp<0 else temp
+				temp = 1 if temp>1 else temp
+				G1.edge[id1][id2]['weight'] = temp
+	#print len(G1.edges())
 	return (G1,G2)
 
+def printStatus(G1,G2,actG1,actG2):
+	numG1 = 0
+	numG2 = 0
+	for node in G1.nodes():
+		if G1.node[node]['active'] == True:
+			numG1 +=1
+	for node in G2.nodes():
+		if G2.node[node]['active'] == True:
+			numG2 +=1
+	print 'The active number in G1(LT) is' + str(numG1)
+	print 'The active number in G2(IC) is' + str(numG2)
+	actG1.append(numG1)
+	actG2.append(numG2)
+	return 
 
 if __name__ == '__main__':
 	G1 = nx.Graph()		#face-to-face 网络
 	G2 = nx.Graph()		#online 网络
+	actG1 = []
+	actG2 = []
 	(G1,G2) = construct(G1,G2)
 	(G1,G2) = init(G1,G2)
-	#(G1,G2) = performCascade(G1,G2)
-	print "蛤蛤"
+	printStatus(G1,G2,actG1,actG2)
+	for i in xrange(40):
+		print 'Cascade is started.' 
+		(G1,G2) = performCascade(G1,G2)
+		printStatus(G1,G2,actG1,actG2)
+	plot.plot(actG1,  'r^', actG2, 'bs')
+	plot.show()
+		
+	'''
 	a = Random()
 	Y = []
 	for i in range(10000):
 		Y.append(a.gauss(0,0.5))
-	#plot.hist(Y, bins=50, normed=1, facecolor='green', alpha=0.75)
-	#plot.show()
+	plot.hist(Y, bins=50, normed=1, facecolor='green', alpha=0.75)
+	plot.show()'''
